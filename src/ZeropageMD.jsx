@@ -296,6 +296,32 @@ export default function ZeropageMD() {
             // Strategy: Replace math with placeholders -> Parse MD -> Restore Math
 
             let protectedMd = markdown;
+
+            // --- Lenient Parsing Pre-processing ---
+            // 1. Lenient Headers: Fix "#Header" -> "# Header"
+            protectedMd = protectedMd.replace(/(^|\n)(#{1,6})([^\s#])/g, '$1$2 $3');
+
+            // 1b. Jammed Syntax Fix: "End)***Start" -> "End)** *Start" (Fixes bold+italic merge)
+            protectedMd = protectedMd.replace(/([)\].!?])\*\*\*([^\s\*])/g, '$1** *$2');
+
+            // 2. Lenient Unordered Lists: Fix "*Item" -> "* Item"
+            // Note: This might catch italic starts at beginning of line, but user requested bullet fix.
+            protectedMd = protectedMd.replace(/(^|\n)([\*\-\+])([^\s\*\-\+])/g, '$1$2 $3');
+
+            // 3. Lenient Numbered Lists: Fix "1.Item" -> "1. Item"
+            protectedMd = protectedMd.replace(/(^|\n)(\d+\.)([^\s\d])/g, '$1$2 $3');
+
+            // --- Question Heuristic ---
+            // If a numbered line ends with a '?', it's likely a Question Header, not a list item.
+            // Escape the dot so it renders as a paragraph: "4. Question?" -> "4\. Question?"
+            // This breaks the list context, so the next "1." starts a fresh list.
+            protectedMd = protectedMd.replace(/(^|\n)(\d+)\.([ \t].+?\?)/g, '$1$2\\.$3');
+
+            // --- List Breaking Logic ---
+            // Prevent "loose lists" from merging by inserting an HTML comment break when a list seems to reset to "1."
+            // Pattern: [End of line item] -> [1-2 blank lines] -> [Start of "1. "]
+            protectedMd = protectedMd.replace(/(^|\n)(\d+\.[ \t].+)(\n{1,2})(1\.[ \t])/g, '$1$2\n\n<!-- list-break -->\n\n$4');
+
             const mathItems = [];
 
             // Helper: stash math match and return unique placeholder
@@ -613,7 +639,8 @@ export default function ZeropageMD() {
       overflow-x: hidden;
       page-break-inside: avoid; 
     }
-    .preview-content ul, .preview-content ol { padding-left: 1.5em; margin-bottom: 1em; }
+    .preview-content ul { list-style-type: disc; padding-left: 1.5em; margin-bottom: 1em; }
+    .preview-content ol { list-style-type: decimal; padding-left: 1.5em; margin-bottom: 1em; }
     .preview-content li { margin-bottom: 0.5em; page-break-inside: avoid; }
     .preview-content p { margin-bottom: 1em; orphans: 3; widows: 3; } /* Removed strict avoid to allow filling pages */
     .preview-content blockquote { page-break-inside: avoid; }
