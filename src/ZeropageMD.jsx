@@ -262,6 +262,115 @@ export default function ZeropageMD() {
       .preview-content table { border-top: 2px solid #000; border-bottom: 2px solid #000; }
       .preview-content th { border-bottom: 1px solid #000; font-weight: bold; text-align: center; }
       .preview-content td { border: none; padding: 8px 12px; }
+    `,
+        miktex: `
+      /* MiKTeX / Exam Theme - Rendered Document Style */
+      .preview-content { font-family: 'Inter', 'Segoe UI', sans-serif; color: #4b5563; line-height: 1.6; font-size: 11pt; }
+      .preview-content h1 { 
+        color: #1e3a8a; 
+        font-weight: 800; 
+        font-size: 24pt; 
+        text-transform: uppercase; 
+        margin-bottom: 8px; 
+        letter-spacing: -0.02em; 
+      }
+      .preview-content h2 { 
+        color: #6b7280; 
+        font-weight: 500; 
+        font-size: 13pt; 
+        margin-top: 0; 
+        margin-bottom: 24px; 
+      }
+      .preview-content h3 { 
+        color: #94a3b8; 
+        font-weight: 600; 
+        font-size: 10pt; 
+        text-transform: uppercase; 
+        letter-spacing: 1px; 
+        border-bottom: 2px solid #3b82f6; 
+        padding-bottom: 8px; 
+        margin-top: 24px; 
+        margin-bottom: 24px; 
+      }
+      .preview-content blockquote { 
+        background-color: #f0f4f8;
+        border-left: 4px solid #1e3a8a; 
+        padding: 16px 20px; 
+        color: #1e3a8a; 
+        font-weight: 700; 
+        margin: 0 0 24px 0; 
+        border-radius: 0 4px 4px 0;
+        font-size: 10.5pt;
+      }
+      .preview-content blockquote p { margin-bottom: 0; }
+      .preview-content p { margin-bottom: 12px; color: #4b5563; }
+      .preview-content ol { 
+        list-style-type: none; 
+        counter-reset: item; 
+        padding-left: 0; 
+      }
+      .preview-content ol > li { 
+        counter-increment: item; 
+        margin-bottom: 24px; 
+        position: relative; 
+        padding-top: 16px; 
+        border-top: 1px dashed #e5e7eb; 
+        padding-left: 24px; 
+      }
+      .preview-content ol > li::before { 
+        content: counter(item) "."; 
+        color: #2563eb; 
+        font-weight: 700; 
+        position: absolute; 
+        left: 0; 
+        top: 16px; 
+      }
+      .preview-content ol > li > strong:first-child, 
+      .preview-content ol > li > p:first-child > strong:first-child { 
+        color: #111827; 
+      }
+      
+      /* Chip for marks styling using inline code */
+      .preview-content p > code, 
+      .preview-content h1 > code, 
+      .preview-content h2 > code, 
+      .preview-content h3 > code, 
+      .preview-content li > code { 
+         background: #e0f2fe; 
+         color: #0369a1; 
+         border: 1px solid #bae6fd;
+         border-radius: 4px; 
+         padding: 3px 10px; 
+         font-weight: 700;
+         font-size: 9pt;
+         font-family: 'Inter', sans-serif;
+         float: right;
+         margin-top: -2px;
+      }
+      
+      /* Code block styling */
+      .preview-content pre {
+         background: #f8fafc;
+         color: #334155;
+         border-radius: 6px;
+         border: 1px solid #e2e8f0;
+         padding: 16px;
+         font-family: 'JetBrains Mono', 'Consolas', monospace;
+         font-size: 9.5pt;
+      }
+      .preview-content pre code {
+         background: transparent;
+         color: inherit;
+         border: none;
+         padding: 0;
+         float: none;
+         font-family: inherit;
+      }
+      
+      .preview-content ul { padding-left: 24px; margin-bottom: 16px; list-style-type: disc; }
+      .preview-content ul li { margin-bottom: 6px; color: #4b5563; border: none; padding: 0; }
+      .preview-content ul li::before { content: none; }
+      .preview-content strong { color: #374151; font-weight: 700; }
     `
     };
 
@@ -504,15 +613,15 @@ export default function ZeropageMD() {
 
         const element = previewRef.current;
 
-        // Temporarily reset scale and padding for print
+        // Temporarily reset scale for print.
+        // Crucial Fix: To make PDF match preview exactly, we MUST NOT change the left/right padding
+        // because that changes the content width and reflows text.
+        // However, we set top/bottom padding to 0, and let html2pdf handle top/bottom margins 
+        // so EVERY page gets vertical margins (not just the first and last).
         const originalTransform = element.style.transform;
         const originalPadding = element.style.padding;
         element.style.transform = 'none';
-        element.style.padding = '24px';
-
-        // Revert to Safe "Center It" Strategy:
-        // Use standard 10mm margins on all sides. This lets the PDF engine handle centering content on the A4 page.
-        // We do NOT force width in html2canvas anymore, to avoid "cutting down everything".
+        element.style.padding = '0 20mm'; // Keep horizontal padding, remove vertical
 
         // Set background explicitly for the snapshot
         let bgColor = '#ffffff';
@@ -525,9 +634,6 @@ export default function ZeropageMD() {
         // Smart Page Breaks Logic
         // 1. Large Block Handling (Tables, Code, etc.)
         element.querySelectorAll('pre, blockquote, table, img').forEach(block => {
-            // A4 Height @ 96DPI ~ 1123px. Safe content area ~ 900-1000px.
-            // If a block is larger than ~800px, forcing 'avoid' will create huge gaps.
-            // So we allow it to break. Otherwise, we keep it together.
             if (block.offsetHeight > 800) {
                 block.style.pageBreakInside = 'auto';
             } else {
@@ -543,8 +649,6 @@ export default function ZeropageMD() {
             const next = header.nextElementSibling;
             if (next) {
                 const combinedHeight = header.offsetHeight + next.offsetHeight;
-                // Only glue if the pair is manageable (e.g., < 600px)
-                // If next is a massive table, don't glue (let table split logic handle it)
                 if (combinedHeight < 600) {
                     const wrapper = document.createElement('div');
                     wrapper.style.pageBreakInside = 'avoid';
@@ -563,9 +667,11 @@ export default function ZeropageMD() {
         });
 
         const opt = {
-            margin: [0, 0, 0, 0], // these values are better for exporting.
+            // Margin format: [top, left, bottom, right] in mm.
+            // We use 20mm top/bottom for pagination margins. 0mm left/right because element padding handles it.
+            margin: [20, 0, 20, 0], 
             filename: `zeropage_${Date.now()}.pdf`,
-            image: { type: 'jpeg', quality: 0.98 },
+            image: { type: 'jpeg', quality: 1.0 },
             html2canvas: {
                 scale: 2,
                 useCORS: true,
@@ -576,7 +682,7 @@ export default function ZeropageMD() {
             jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
             pagebreak: {
                 mode: ['css', 'legacy'],
-                avoid: ['tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'] // Explicitly protect headers and rows
+                avoid: ['tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'] // Protect headers, rows, and list items
             }
         };
 
@@ -687,7 +793,7 @@ export default function ZeropageMD() {
                     {/* Theme Selector - Compact on Mobile */}
                     <div className="flex items-center bg-gray-900 rounded-lg p-1 border border-gray-800 hidden sm:flex">
                         {/* Professional / Clean Group */}
-                        {['professional', 'standard', 'academic'].map(t => (
+                        {['professional', 'standard', 'academic', 'miktex'].map(t => (
                             <button
                                 key={t}
                                 onClick={() => setConfig(c => ({ ...c, theme: t }))}
@@ -696,7 +802,7 @@ export default function ZeropageMD() {
                                     : 'text-gray-400 border-transparent hover:text-white'
                                     }`}
                             >
-                                {t === 'professional' ? 'Pro' : t}
+                                {t === 'professional' ? 'Pro' : t === 'miktex' ? 'MiKTeX' : t}
                             </button>
                         ))}
 
@@ -727,6 +833,7 @@ export default function ZeropageMD() {
                             <option value="professional">PRO</option>
                             <option value="standard">STANDARD</option>
                             <option value="academic">ACADEMIC</option>
+                            <option value="miktex">MIKTEX</option>
                         </optgroup>
                         <optgroup label="Creative">
                             <option value="zine">ZINE</option>
