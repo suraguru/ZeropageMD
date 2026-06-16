@@ -1,3 +1,4 @@
+"use client";
 import React, { useState, useEffect, useRef } from 'react';
 import {
     FileText,
@@ -16,7 +17,6 @@ import {
     Share2,
     Upload
 } from 'lucide-react';
-import html2pdf from 'html2pdf.js';
 import { marked } from 'marked';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
@@ -169,7 +169,7 @@ export default function ZeropageMD() {
         transition: transform 0.1s;
       }
       .preview-content img { border: 3px solid #000; box-shadow: 8px 8px 0px #000; }
-      .preview-content table { border: 3px solid #000; box-shadow: 4px 4px 0px #000; }
+      .preview-content table { border: 3px solid #000; box-shadow: 4px 4px 0px #000; page-break-inside: avoid; break-inside: avoid; }
       .preview-content th { background: #000; color: #fff; text-transform: uppercase; font-weight: 900; padding: 12px; }
       .preview-content td { border: 2px solid #000; padding: 10px; }
     `,
@@ -259,7 +259,7 @@ export default function ZeropageMD() {
       }
       .preview-content code { font-family: 'Courier', monospace; font-size: 0.9em; }
       .preview-content a { color: #000; text-decoration: underline; }
-      .preview-content table { border-top: 2px solid #000; border-bottom: 2px solid #000; }
+      .preview-content table { border-top: 2px solid #000; border-bottom: 2px solid #000; page-break-inside: avoid; break-inside: avoid; }
       .preview-content th { border-bottom: 1px solid #000; font-weight: bold; text-align: center; }
       .preview-content td { border: none; padding: 8px 12px; }
     `,
@@ -607,90 +607,57 @@ export default function ZeropageMD() {
         document.body.removeChild(fileDownload);
     };
 
-    const handleDownloadPDF = () => {
-        if (!html2pdf || !previewRef.current) return;
+    const handleDownloadPDF = async () => {
+        if (!previewRef.current) return;
         setIsGenerating(true);
 
-        const element = previewRef.current;
+        try {
+            const element = previewRef.current;
 
-        // Temporarily reset scale for print.
-        // Crucial Fix: To make PDF match preview exactly, we MUST NOT change the left/right padding
-        // because that changes the content width and reflows text.
-        // However, we set top/bottom padding to 0, and let html2pdf handle top/bottom margins 
-        // so EVERY page gets vertical margins (not just the first and last).
-        const originalTransform = element.style.transform;
-        const originalPadding = element.style.padding;
-        element.style.transform = 'none';
-        element.style.padding = '0 20mm'; // Keep horizontal padding, remove vertical
-
-        // Set background explicitly for the snapshot
-        let bgColor = '#ffffff';
-        if (config.darkModePdf) {
-            bgColor = '#1e1e1e';
-        } else if (config.theme === 'professional') {
-            bgColor = '#ffffff';
-        }
-
-        // Smart Page Breaks Logic
-        // 1. Large Block Handling (Tables, Code, etc.)
-        element.querySelectorAll('pre, blockquote, table, img').forEach(block => {
-            if (block.offsetHeight > 800) {
-                block.style.pageBreakInside = 'auto';
-            } else {
-                block.style.pageBreakInside = 'avoid';
-            }
-        });
-
-        // 2. Orphan Header Protection (Keep headers with next element)
-        const headers = element.querySelectorAll('h1, h2, h3, h4, h5, h6');
-        const wrappers = []; // Store wrappers to unwrap later
-
-        headers.forEach(header => {
-            const next = header.nextElementSibling;
-            if (next) {
-                const combinedHeight = header.offsetHeight + next.offsetHeight;
-                if (combinedHeight < 600) {
-                    const wrapper = document.createElement('div');
-                    wrapper.style.pageBreakInside = 'avoid';
-                    wrapper.style.display = 'block'; // Ensure block behavior
-
-                    // Insert wrapper before header
-                    header.parentNode.insertBefore(wrapper, header);
-
-                    // Move header and next into wrapper
-                    wrapper.appendChild(header);
-                    wrapper.appendChild(next);
-
-                    wrappers.push(wrapper);
+            // --- Smart Page Breaks Logic ---
+            // 1. Large Block Handling (Tables, Code, etc.)
+            element.querySelectorAll('pre, blockquote, table, img').forEach(block => {
+                // If a block is larger than ~800px, forcing 'avoid' will create huge gaps.
+                // So we allow it to break. Otherwise, we keep it together.
+                if (block.offsetHeight > 800) {
+                    block.style.pageBreakInside = 'auto';
+                    block.style.breakInside = 'auto';
+                } else {
+                    block.style.pageBreakInside = 'avoid';
+                    block.style.breakInside = 'avoid';
                 }
-            }
-        });
+            });
 
-        const opt = {
-            // Margin format: [top, left, bottom, right] in mm.
-            // We use 20mm top/bottom for pagination margins. 0mm left/right because element padding handles it.
-            margin: [20, 0, 20, 0], 
-            filename: `zeropage_${Date.now()}.pdf`,
-            image: { type: 'jpeg', quality: 1.0 },
-            html2canvas: {
-                scale: 2,
-                useCORS: true,
-                letterRendering: true,
-                backgroundColor: bgColor,
-                scrollY: 0,
-            },
-            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-            pagebreak: {
-                mode: ['css', 'legacy'],
-                avoid: ['tr', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'li'] // Protect headers, rows, and list items
-            }
-        };
+            // 2. Orphan Header Protection (Keep headers with next element)
+            const headers = element.querySelectorAll('h1, h2, h3, h4, h5, h6');
+            const wrappers = []; // Store wrappers to unwrap later
 
-        html2pdf().set(opt).from(element).save().then(() => {
-            element.style.transform = originalTransform;
-            element.style.padding = originalPadding;
+            headers.forEach(header => {
+                const next = header.nextElementSibling;
+                if (next) {
+                    const combinedHeight = header.offsetHeight + next.offsetHeight;
+                    if (combinedHeight < 600) {
+                        const wrapper = document.createElement('div');
+                        wrapper.style.pageBreakInside = 'avoid';
+                        wrapper.style.breakInside = 'avoid';
+                        wrapper.style.display = 'block'; // Ensure block behavior
 
-            // Clean up: Unwrap headers
+                        // Insert wrapper before header
+                        header.parentNode.insertBefore(wrapper, header);
+
+                        // Move header and next into wrapper
+                        wrapper.appendChild(header);
+                        wrapper.appendChild(next);
+
+                        wrappers.push(wrapper);
+                    }
+                }
+            });
+
+            // Get the HTML content AFTER styles are injected
+            const htmlContent = previewRef.current.innerHTML;
+
+            // --- Clean up inline styles immediately ---
             wrappers.forEach(wrapper => {
                 if (wrapper.parentNode) {
                     while (wrapper.firstChild) {
@@ -700,13 +667,49 @@ export default function ZeropageMD() {
                 }
             });
 
-            // Clean up inline styles (optional, but good for react cleanliness)
             element.querySelectorAll('pre, blockquote, table, img').forEach(block => {
                 block.style.pageBreakInside = '';
+                block.style.breakInside = '';
             });
 
+            // Send request to our new backend API
+            const response = await fetch('/api/pdf', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    html: htmlContent,
+                    css: finalStyles,
+                    themeConfig: config
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to generate PDF');
+            }
+
+            // Convert response to a Blob
+            const blob = await response.blob();
+            
+            // Create a temporary link to trigger download
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `zeropage_${Date.now()}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // Cleanup
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+        } catch (error) {
+            console.error('Error downloading PDF:', error);
+            alert('Failed to generate PDF. Is the backend server running?');
+        } finally {
             setIsGenerating(false);
-        });
+        }
     };
 
     const insertText = (before, after = '') => {
@@ -730,8 +733,8 @@ export default function ZeropageMD() {
     .preview-content { font-size: 12pt; line-height: 1.6; box-sizing: border-box; width: 100%; }
     .preview-content * { box-sizing: border-box; }
     .preview-content img { max-width: 100%; height: auto; display: block; margin: 1.5em 0; }
-    .preview-content table { width: 100%; border-collapse: collapse; margin-bottom: 1.5em; border: 1px solid #d1d5db; }
-    .preview-content th, .preview-content td { padding: 8px; text-align: left; border: 1px solid #d1d5db; }
+    .preview-content table { width: 100%; table-layout: fixed; border-collapse: collapse; margin-bottom: 1.5em; border: 1px solid #d1d5db; word-break: break-word; overflow-wrap: break-word; }
+    .preview-content th, .preview-content td { padding: 8px; text-align: left; border: 1px solid #d1d5db; word-break: break-word; overflow-wrap: break-word; }
     .preview-content pre { 
       background: #1e1e1e; 
       color: #f8f8f2; 
