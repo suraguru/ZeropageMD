@@ -1,7 +1,49 @@
 import { NextResponse } from 'next/server';
-import puppeteer from 'puppeteer';
+import puppeteer from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
+import fs from 'fs';
+
+export const dynamic = 'force-dynamic';
+export const maxDuration = 60;
+
+async function getBrowser() {
+    const isVercel = process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_VERSION;
+
+    if (isVercel) {
+        chromium.setGraphicsMode = false;
+        return puppeteer.launch({
+            args: chromium.args,
+            defaultViewport: chromium.defaultViewport,
+            executablePath: await chromium.executablePath(),
+            headless: chromium.headless,
+        });
+    }
+
+    // Local development: find Chrome or Edge on Windows, Mac, or Linux
+    const possiblePaths = [
+        process.env.CHROME_PATH,
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe`,
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        '/usr/bin/google-chrome',
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser'
+    ].filter(Boolean);
+
+    const executablePath = possiblePaths.find(p => fs.existsSync(p));
+
+    return puppeteer.launch({
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        executablePath: executablePath || undefined,
+        headless: true,
+    });
+}
 
 export async function POST(req) {
+    let browser;
     try {
         const body = await req.json();
         const { html, css, themeConfig } = body;
@@ -47,10 +89,7 @@ export async function POST(req) {
         `;
 
         // Launch puppeteer
-        const browser = await puppeteer.launch({
-            headless: 'new',
-            args: ['--no-sandbox', '--disable-setuid-sandbox']
-        });
+        browser = await getBrowser();
         const page = await browser.newPage();
 
         // Load the HTML content
@@ -69,8 +108,6 @@ export async function POST(req) {
             }
         });
 
-        await browser.close();
-
         return new NextResponse(pdfBuffer, {
             status: 200,
             headers: {
@@ -82,5 +119,9 @@ export async function POST(req) {
     } catch (error) {
         console.error('Error generating PDF:', error);
         return new NextResponse('Error generating PDF', { status: 500 });
+    } finally {
+        if (browser) {
+            await browser.close().catch(() => {});
+        }
     }
 }
